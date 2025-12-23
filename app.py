@@ -250,62 +250,7 @@ def delete_short(short_id):
 
 
 
-@app.route("/shorts/<int:short_id>/like", methods=["POST"])
-def like_short(short_id):
-    user = session.get("user")
-    if not user:
-        flash("You must be logged in to like a short.", "warning")
-        return redirect(url_for("shorts_feed"))
 
-    conn = get_db()
-    cur = conn.cursor()
-
-    # Get uploader of this short
-    cur.execute("SELECT uploader FROM shorts WHERE id=?", (short_id,))
-    row = cur.fetchone()
-    if row and row["uploader"] == user:
-        conn.close()
-        # Instead of flash, set a session flag
-        session["like_self_error"] = True
-        return redirect(url_for("shorts_feed"))
-
-    # Check if user already liked this short
-    cur.execute("SELECT 1 FROM short_likes WHERE short_id=? AND user=?", (short_id, user))
-    if cur.fetchone():
-        flash("You've already liked this short.", "info")
-    else:
-        cur.execute("INSERT INTO short_likes (short_id, user) VALUES (?, ?)", (short_id, user))
-        cur.execute("UPDATE shorts SET likes = likes + 1 WHERE id=?", (short_id,))
-        conn.commit()
-        flash("Short liked!", "success")
-
-    conn.close()
-    return redirect(url_for("shorts_feed"))
-
-    conn = get_db()
-    cur = conn.cursor()
-
-    # Get uploader of this short
-    cur.execute("SELECT uploader FROM shorts WHERE id=?", (short_id,))
-    row = cur.fetchone()
-    if row and row["uploader"] == user:
-        conn.close()
-        flash("You cannot like your own short.", "danger")
-        return redirect(url_for("shorts_feed"))
-
-    # Check if user already liked this short
-    cur.execute("SELECT 1 FROM short_likes WHERE short_id=? AND user=?", (short_id, user))
-    if cur.fetchone():
-        flash("You've already liked this short.", "info")
-    else:
-        # Record the like
-        cur.execute("INSERT INTO short_likes (short_id, user) VALUES (?, ?)", (short_id, user))
-        cur.execute("UPDATE shorts SET likes = likes + 1 WHERE id=?", (short_id,))
-        conn.commit()
-        flash("Short liked!", "success")
-
-    conn.close()
-    return redirect(url_for("shorts_feed"))
 
 
 
