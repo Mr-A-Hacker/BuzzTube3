@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container">
+  <h1 class="neon-text big-title">BuzzTub Publichat</h1>
+
+  <!-- Chat messages -->
+  <div class="card chat-box">
+    <h2 class="neon-text">Recent Messages</h2>
+    {% if messages %}
+      <ul class="chat-list">
+        {% for m in messages %}
+          <li class="chat-item">
+            <strong>{{ m.user }}</strong>: {{ m.message }}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No messages yet. Start the conversation!</p>
+    {% endif %}
+  </div>
+
+  <!-- Message form -->
+  <div class="card">
+    <form method="post" action="{{ url_for('publichat') }}">
+      <textarea name="message" placeholder="Type your message..." required></textarea>
+      <button type="submit" class="btn">Send</button>
+    </form>
+  </div>
+
+  <!-- Navigation -->
+  <div class="card">
+    <a href="{{ url_for('home') }}" class="btn">Back to Home</a>
+    <a href="{{ url_for('leaderboard') }}" class="btn">Leaderboard</a>
+    <a href="{{ url_for('upload') }}" class="btn">Upload Video</a>
+  </div>
+</div>
+
+{% endblock %}

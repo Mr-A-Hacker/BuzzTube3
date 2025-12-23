@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1 class="big-title neon-text">🎛 Admin Shorts Control</h1>
+
+  {% if shorts %}
+    <div style="display:flex; flex-direction:column; gap:30px;">
+      {% for short in shorts %}
+        <div class="card" style="max-width:500px; margin:auto;">
+          <video controls playsinline style="width:100%; border-radius:12px; box-shadow:0 0 15px #ff33aa;">
+            <source src="{{ short['filepath'] }}" type="video/mp4">
+          </video>
+          <h2 class="neon-text">{{ short['title'] }}</h2>
+          <p class="meta">Uploader: <strong>{{ short['uploader'] }}</strong></p>
+          <p class="meta">Caption: {{ short['caption'] }}</p>
+          <p class="meta">Likes: {{ short['likes'] }}</p>
+          <p class="meta">Uploaded: {{ short['timestamp'] }}</p>
+
+          <form action="{{ url_for('delete_short', short_id=short['id']) }}" method="post">
+            <button type="submit" class="btn settings-btn">🗑 Delete Short</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="neon-text">No shorts available.</p>
+  {% endif %}
+{% endblock %}

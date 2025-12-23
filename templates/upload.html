@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container">
+  <div class="card">
+    <h1 class="neon-text big-title">Upload a Video</h1>
+
+    <form method="POST" enctype="multipart/form-data">
+      <!-- Title -->
+      <label for="title">Video Title</label>
+      <input type="text" id="title" name="title" placeholder="Enter video title" required>
+
+      <!-- File -->
+      <label for="file">Select Video File</label>
+      <input type="file" id="file" name="file" accept="video/*" required>
+
+      <!-- Submit -->
+      <button type="submit" class="btn">Upload</button>
+    </form>
+
+    <p class="meta">Only premium users have unlimited access. Free users are limited to 10 minutes.</p>
+  </div>
+</div>
+
+{% endblock %}

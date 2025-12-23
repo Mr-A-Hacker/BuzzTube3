@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1 class="big-title neon-text">🌟 Buzz Shorts</h1>
+
+  <!-- Shorts list -->
+  <div style="display:flex; flex-direction:column; gap:30px;">
+    {% for short in shorts %}
+      <div class="card" style="max-width:400px; margin:auto;">
+        <!-- Video -->
+        <div style="position:relative; padding-top:177.78%; overflow:hidden; border-radius:12px; box-shadow:0 0 15px #ff33aa;">
+          <video controls playsinline style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover;">
+            <source src="{{ short['filepath'] }}" type="video/mp4">
+            Your browser does not support the video tag.
+          </video>
+        </div>
+
+        <!-- Title -->
+        <h2 class="neon-text" style="margin-top:10px;">{{ short['title'] }}</h2>
+
+        <!-- Caption -->
+        {% if short['caption'] %}
+          <p class="meta">{{ short['caption'] }}</p>
+        {% endif %}
+
+        <!-- Uploader + Timestamp -->
+        <p class="meta">Uploaded by <strong>{{ short['uploader'] }}</strong> on {{ short['timestamp'] }}</p>
+
+        <!-- Likes -->
+        {% if session.get("user") != short['uploader'] %}
+          <form action="{{ url_for('like_short', short_id=short['id']) }}" method="post">
+            <button type="submit" class="btn">👍 {{ short['likes'] }}</button>
+          </form>
+        {% else %}
+          <button type="button" class="btn settings-btn" onclick="openLikeSelfPopup()">👍 {{ short['likes'] }}</button>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Popup Modal for self-like -->
+  <div id="likeSelfPopup" class="premium-popup" style="display:none;">
+    <div class="premium-content">
+      <h2 class="neon-text">🚫 Not Allowed</h2>
+      <p class="neon-text">You cannot like your own short!</p>
+      <button class="btn settings-btn" onclick="closeLikeSelfPopup()">Close</button>
+    </div>
+  </div>
+
+  <script>
+    function openLikeSelfPopup() {
+      document.getElementById("likeSelfPopup").style.display = "flex";
+    }
+    function closeLikeSelfPopup() {
+      document.getElementById("likeSelfPopup").style.display = "none";
+    }
+
+    {% if session.get("like_self_error") %}
+      document.getElementById("likeSelfPopup").style.display = "flex";
+      {% set _ = session.pop("like_self_error") %}
+    {% endif %}
+  </script>
+{% endblock %}

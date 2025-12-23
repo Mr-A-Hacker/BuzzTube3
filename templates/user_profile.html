@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container">
+  <h1 class="neon-text">{{ user.username }}'s Profile</h1>
+
+  <!-- User info -->
+  <div class="card">
+    <p><strong>Premium:</strong> {{ "Yes" if user.premium else "No" }}</p>
+    {% if user.profile_pic %}
+      <img src="{{ url_for('uploads', filename=user.profile_pic) }}" alt="Profile Picture" style="max-width:150px; border-radius:50%; margin-top:1rem;">
+    {% endif %}
+
+    {% if session.get('user') and session.get('user') != user.username %}
+      <form method="post" action="{{ url_for('subscribe_user', username=user.username) }}">
+        <button type="submit" class="btn">Subscribe</button>
+      </form>
+      <form method="post" action="{{ url_for('report_user', username=user.username) }}">
+        <textarea name="reason" placeholder="Report reason..." required></textarea>
+        <button type="submit" class="btn">Report User</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <!-- User videos -->
+  <div class="card">
+    <h2 class="neon-text">Videos by {{ user.username }}</h2>
+    {% if videos %}
+      <ul>
+        {% for v in videos %}
+          <li>
+            <a href="{{ url_for('video', id=v.id) }}">{{ v.title }}</a>  
+            (Likes: {{ v.likes }})
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No videos uploaded yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

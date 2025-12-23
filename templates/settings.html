@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container">
+  <div class="card">
+    <h1 class="neon-text big-title">Settings</h1>
+
+    <p class="meta">
+      Account Type: {% if user['premium'] %} Premium {% else %} Free {% endif %}
+    </p>
+
+    <form method="POST">
+      <!-- Change Username -->
+      <label for="username">New Username</label>
+      <input type="text" id="username" name="username" placeholder="Enter new username">
+
+      <!-- Change Password -->
+      <label for="password">New Password</label>
+      <input type="password" id="password" name="password" placeholder="Enter new password">
+
+      <button type="submit" class="btn">Save Changes</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

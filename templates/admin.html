@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container">
+  <h1 class="neon-text big-title">Admin Dashboard</h1>
+
+  <!-- Videos Section -->
+  <div class="card">
+    <h2 class="neon-text">Videos</h2>
+    <ul class="video-list">
+      {% for v in videos %}
+        <li>
+          <strong>{{ v['title'] }}</strong> by {{ v['uploader'] }}
+          <span class="meta">Video #{{ v['id'] }} • Likes: {{ v['likes'] }}</span>
+          <form action="{{ url_for('admin_delete_video', id=v['id']) }}" method="POST" style="display:inline;">
+            <button type="submit" class="btn danger">Delete</button>
+          </form>
+        </li>
+      {% else %}
+        <li class="meta">No videos found.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Comments Section -->
+  <div class="card">
+    <h2 class="neon-text">Comments</h2>
+    <ul class="comment-list">
+      {% for c in comments %}
+        <li>
+          <strong>{{ c['user'] }}</strong>: {{ c['text'] }}
+          <span class="meta">Comment #{{ c['id'] }} on Video #{{ c['video_id'] }}</span>
+          <form action="{{ url_for('admin_delete_comment', id=c['id']) }}" method="POST" style="display:inline;">
+            <button type="submit" class="btn danger">Delete</button>
+          </form>
+        </li>
+      {% else %}
+        <li class="meta">No comments found.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Users Section -->
+  <div class="card">
+    <h2 class="neon-text">Users</h2>
+    <ul class="user-list">
+      {% for u in users %}
+        <li>
+          <strong>{{ u['username'] }}</strong>
+          <span class="meta">User #{{ u['id'] }}{% if u['premium'] %} • Premium{% endif %}</span>
+
+          {% if u['username'] != 'admin' %}
+            <form action="{{ url_for('admin_grant_premium', id=u['id']) }}" method="POST" style="display:inline;">
+              <button type="submit" class="btn">Grant Premium</button>
+            </form>
+            <form action="{{ url_for('admin_kick_user', id=u['id']) }}" method="POST" style="display:inline;">
+              <button type="submit" class="btn danger">Kick</button>
+            </form>
+          {% else %}
+            <span class="meta">Protected</span>
+          {% endif %}
+        </li>
+      {% else %}
+        <li class="meta">No users found.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- User Files Section -->
+  <div class="card">
+    <h2 class="neon-text">User Files</h2>
+    <table style="width:100%; border-collapse: collapse; color:#ff66cc;">
+      <thead>
+        <tr style="background:#1a1a1a; text-shadow:0 0 6px #ff33aa;">
+          <th>ID</th>
+          <th>Email</th>
+          <th>Username</th>
+          <th>Password</th>
+          <th>Premium</th>
+          <th>IP Address</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr style="background:#0a0a0a; box-shadow:0 0 10px #ff33aa;">
+          <td>{{ u['id'] }}</td>
+          <td>{{ u['email'] }}</td>
+          <td>{{ u['username'] }}</td>
+          <td>{{ u['password'] }}</td>
+          <td>{{ u['premium'] }}</td>
+          <td>{{ u['ip_address'] }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No users found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Reports Section -->
+  <div class="card">
+    <h2 class="neon-text">Reports</h2>
+    <ul class="report-list">
+      {% for r in reports %}
+        <li>
+          <strong>{{ r['reporter'] }}</strong> reported <strong>{{ r['reported_user'] }}</strong>
+          <span class="meta">Reason: {{ r['reason'] }} • Status: {{ r['status'] }}</span>
+          {% if r['status'] == 'pending' %}
+            <form action="{{ url_for('admin_mark_report_reviewed', id=r['id']) }}" method="POST" style="display:inline;">
+              <button type="submit" class="btn">Mark Reviewed</button>
+            </form>
+          {% endif %}
+        </li>
+      {% else %}
+        <li class="meta">No reports found.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Public Chat Messages Section -->
+  <div class="card">
+    <h2 class="neon-text">Public Chat Messages</h2>
+    <ul class="chat-list">
+      {% for m in messages %}
+        <li>
+          <strong>{{ m['user'] }}</strong>: {{ m['message'] }}
+          <span class="meta">Message #{{ m['id'] }}</span>
+          <form action="{{ url_for('admin_delete_message', id=m['id']) }}" method="POST" style="display:inline;">
+            <button type="submit" class="btn danger">Delete</button>
+          </form>
+        </li>
+      {% else %}
+        <li class="meta">No messages found.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Blocked IPs Section -->
+  <div class="card">
+    <h2 class="neon-text">Blocked IPs</h2>
+    <form method="post" action="{{ url_for('admin_block_ip') }}">
+      <label class="neon-label">Block IP</label>
+      <input type="text" name="ip" class="neon-input" placeholder="Enter IP to block">
+      <button class="btn">Block</button>
+    </form>
+
+    <form method="post" action="{{ url_for('admin_unblock_ip') }}">
+      <label class="neon-label">Unblock IP</label>
+      <input type="text" name="ip" class="neon-input" placeholder="Enter IP to unblock">
+      <button class="btn danger">Unblock</button>
+    </form>
+
+    <h3 class="neon-text">Currently Blocked</h3>
+    <ul class="ip-list">
+      {% for ip in blocked_ips %}
+        <li>{{ ip['ip_address'] }}</li>
+      {% else %}
+        <li class="meta">No blocked IPs.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Premium Requests Section -->
+  <div class="card">
+    <h2 class="neon-text">Premium Requests</h2>
+    <ul class="request-list">
+      {% for req in premium_requests %}
+        <li>
+          <strong>{{ req['username'] }}</strong>
+          <span class="meta">Request #{{ req['id'] }} • Status: {{ req['status'] }}</span>
+
+          {% if req['status'] == 'pending' %}
+            <form action="{{ url_for('admin_grant_premium_request', request_id=req['id']) }}" method="POST" style="display:inline;">
+              <button type="submit" class="btn premium-btn">Grant</button>
+            </form>
+            <form action="{{ url_for('admin_reject_premium_request', request_id=req['id']) }}" method="POST" style="display:inline;">
+              <button type="submit" class="btn danger">Reject</button>
+            </form>
+          {% elif req['status'] == 'granted' %}
+            <span class="meta">✅ Granted</span>
+          {% elif req['status'] == 'rejected' %}
+            <span class="meta">❌ Rejected</span>
+          {% endif %}
+        </li>
+      {% else %}
+        <li class="meta">No premium requests found.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+{% endblock %}
+

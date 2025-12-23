@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="neon-text big-title">Channels</h1>
+
+<div style="text-align:center; margin-bottom:25px;">
+  <a href="{{ url_for('create_channel') }}" class="btn">+ Make Channel</a>
+</div>
+
+<div class="row">
+  {% for c in channels %}
+  <div class="card" style="margin-bottom:25px; text-align:center;">
+    <img src="{{ c.pic }}" style="width:100%; border-radius:12px; box-shadow:0 0 20px #ff33aa;">
+    <h2 class="neon-text">{{ c.name }}</h2>
+    <p>Owner: {{ c.owner }}</p>
+    <a href="{{ url_for('channel', channel_id=c.id) }}" class="btn">Enter Channel</a>
+  </div>
+  {% else %}
+  <p class="neon-text">No channels yet. Be the first to make one!</p>
+  {% endfor %}
+</div>
+
+{% endblock %}

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BuzzTube Leaderboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            background: #000;
+            color: #ff66cc;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 3em;
+            margin-top: 30px;
+            color: #ff33aa;
+            text-shadow: 0 0 25px #ff33aa, 0 0 50px #ff66cc;
+        }
+
+        /* Chart container */
+        canvas {
+            margin: 40px auto;
+            display: block;
+            max-width: 90%;
+            filter: drop-shadow(0 0 25px #ff33aa);
+        }
+
+        /* Neon 3D Table */
+        table {
+            width: 85%;
+            margin: 30px auto;
+            border-collapse: collapse;
+            background: #111;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 0 35px #ff33aa;
+            transform: perspective(1200px) rotateX(6deg);
+            transition: .4s;
+        }
+
+        table:hover {
+            transform: perspective(1200px) rotateX(0) scale(1.03);
+            box-shadow: 0 0 60px #ff66cc;
+        }
+
+        th {
+            background: #330033;
+            padding: 14px;
+            font-size: 1.2em;
+            color: #ff66cc;
+            text-shadow: 0 0 10px #ff33aa;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255, 51, 170, 0.3);
+            color: #fff;
+        }
+
+        tr:hover td {
+            background: rgba(255, 51, 170, 0.15);
+        }
+
+        /* Neon Buttons */
+        .nav-buttons {
+            margin: 40px 0;
+        }
+
+        .nav-buttons a {
+            display: inline-block;
+            margin: 10px;
+            padding: 14px 26px;
+            background: #ff33aa;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 12px;
+            font-weight: bold;
+            box-shadow: 0 0 25px #ff33aa;
+            transition: .3s;
+        }
+
+        .nav-buttons a:hover {
+            transform: scale(1.12);
+            background: #ff66cc;
+            color: #000;
+            box-shadow: 0 0 50px #ff66cc;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>BuzzTube Leaderboard</h1>
+
+    <!-- Chart -->
+    <canvas id="leaderboardChart"></canvas>
+
+    <script>
+        const ctx = document.getElementById('leaderboardChart').getContext('2d');
+        const leaderboardChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: [{% for title in titles %}"{{ title }}",{% endfor %}],
+                datasets: [{
+                    label: 'Likes',
+                    data: [{% for like in likes %}{{ like }},{% endfor %}],
+                    backgroundColor: 'rgba(255, 51, 170, 0.6)',
+                    borderColor: 'rgba(255, 51, 170, 1)',
+                    borderWidth: 2,
+                    hoverBackgroundColor: 'rgba(255, 102, 204, 0.9)'
+                }]
+            },
+            options: {
+                plugins: {
+                    legend: { display: false },
+                    title: {
+                        display: true,
+                        text: 'Top 5 Videos by Likes',
+                        color: '#ff66cc',
+                        font: { size: 20 }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: '#fff' },
+                        grid: { color: 'rgba(255, 51, 170, 0.2)' }
+                    },
+                    x: {
+                        ticks: { color: '#fff' },
+                        grid: { color: 'rgba(255, 51, 170, 0.2)' }
+                    }
+                }
+            }
+        });
+    </script>
+
+    <!-- Neon 3D Table -->
+    <table>
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Title</th>
+                <th>Likes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for v in videos %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ v['title'] }}</td>
+                <td>{{ v['likes'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Navigation Buttons -->
+    <div class="nav-buttons">
+        <a href="{{ url_for('home') }}">🏠 Home</a>
+        <a href="{{ url_for('publichat') }}">💬 Public Chat</a>
+        <a href="{{ url_for('upload') }}">⬆️ Upload Video</a>
+    </div>
+
+</body>
+</html>

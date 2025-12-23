@@ -1,0 +1,902 @@
+from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
+import sqlite3, os, time
+from functools import wraps
+import werkzeug
+
+# --- Flask app setup ---
+app = Flask(__name__)
+app.secret_key = "supersecretkey"   # ⚠️ replace with env var in production
+DB_FILE = "buzz.db"
+
+# --- Uploads folder setup ---
+UPLOAD_FOLDER = "static/uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+# --- Database helper ---
+def get_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+
+    # Users
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            premium INTEGER DEFAULT 0,
+            ip_address TEXT
+        )
+    """)
+
+    # Videos
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS videos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            uploader TEXT NOT NULL,
+            filepath TEXT,
+            likes INTEGER DEFAULT 0,
+            channel_id INTEGER
+        )
+    """)
+
+    # Channels
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS channels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            pic TEXT
+        )
+    """)
+
+    # Likes (for shorts)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS likes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            short_id INTEGER,
+            user TEXT,
+            UNIQUE(short_id, user)
+        )
+    """)
+
+    # Comments
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id INTEGER,
+            user TEXT,
+            text TEXT
+        )
+    """)
+
+    # Messages
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user TEXT,
+            message TEXT
+        )
+    """)
+
+    # Reports
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reporter TEXT,
+            reported_user TEXT,
+            reason TEXT,
+            status TEXT DEFAULT 'pending'
+        )
+    """)
+
+    # Follows
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS follows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            follower TEXT,
+            following TEXT
+        )
+    """)
+
+    # Premium Requests
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS premium_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            status TEXT CHECK(status IN ('pending','granted','rejected')) NOT NULL DEFAULT 'pending'
+        )
+    """)
+
+    # Buzz Shorts
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS shorts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            uploader TEXT NOT NULL,
+            filepath TEXT,
+            caption TEXT,
+            likes INTEGER DEFAULT 0,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Blocked IPs
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS blocked_ips (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_address TEXT UNIQUE
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+# Initialize DB
+init_db()
+
+# Middleware: block requests if IP is blocked
+@app.before_request
+def check_ip_block():
+    ip = request.remote_addr
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM blocked_ips WHERE ip_address=?", (ip,))
+    if cur.fetchone():
+        conn.close()
+        abort(403)
+    conn.close()
+
+# Premium decorator
+def premium_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "user" not in session:
+            flash("You must log in first.", "warning")
+            return redirect(url_for("login"))
+
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT premium FROM users WHERE username=?", (session["user"],))
+        user = cur.fetchone()
+        conn.close()
+
+        if not user:
+            session.clear()
+            flash("Your account no longer exists. Please sign up again.", "danger")
+            return redirect(url_for("signup"))
+
+        if user["premium"] == 0:
+            start = session.get("login_time", 0)
+            now = int(time.time())
+            if now - start > 600:
+                session.clear()
+                flash("Your free 10‑minute session expired. Upgrade to premium!", "danger")
+                return redirect(url_for("login"))
+
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Route: like a short
+@app.route("/like_short/<int:short_id>")
+def like_short(short_id):
+    if "user" not in session:
+        flash("You must log in to like shorts.", "warning")
+        return redirect(url_for("login"))
+
+    user = session["user"]
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT 1 FROM likes WHERE short_id=? AND user=?", (short_id, user))
+    if cur.fetchone():
+        flash("You've already liked this short.", "info")
+    else:
+        cur.execute("INSERT INTO likes (short_id, user) VALUES (?, ?)", (short_id, user))
+        cur.execute("UPDATE shorts SET likes = likes + 1 WHERE id=?", (short_id,))
+        conn.commit()
+        flash("Short liked!", "success")
+
+    conn.close()
+    return redirect(url_for("shorts_feed"))
+
+
+
+
+@app.route("/admin/shorts")
+def admin_shorts():
+    if not session.get("admin"):
+        abort(403)
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM shorts ORDER BY timestamp DESC")
+    shorts = cur.fetchall()
+    conn.close()
+
+    return render_template("admin_shorts.html", shorts=shorts)
+
+
+@app.route("/admin/delete_short/<int:short_id>", methods=["POST"])
+def delete_short(short_id):
+    if not session.get("admin"):
+        abort(403)
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    # Get file path before deleting
+    cur.execute("SELECT filepath FROM shorts WHERE id=?", (short_id,))
+    row = cur.fetchone()
+    if row:
+        filepath = row["filepath"]
+        if filepath and os.path.exists(filepath):
+            os.remove(filepath)
+
+        cur.execute("DELETE FROM shorts WHERE id=?", (short_id,))
+        conn.commit()
+
+    conn.close()
+    flash("Short deleted successfully!", "success")
+    return redirect(url_for("admin_shorts"))
+
+
+
+
+@app.route("/shorts/<int:short_id>/like", methods=["POST"])
+def like_short(short_id):
+    user = session.get("user")
+    if not user:
+        flash("You must be logged in to like a short.", "warning")
+        return redirect(url_for("shorts_feed"))
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    # Get uploader of this short
+    cur.execute("SELECT uploader FROM shorts WHERE id=?", (short_id,))
+    row = cur.fetchone()
+    if row and row["uploader"] == user:
+        conn.close()
+        # Instead of flash, set a session flag
+        session["like_self_error"] = True
+        return redirect(url_for("shorts_feed"))
+
+    # Check if user already liked this short
+    cur.execute("SELECT 1 FROM short_likes WHERE short_id=? AND user=?", (short_id, user))
+    if cur.fetchone():
+        flash("You've already liked this short.", "info")
+    else:
+        cur.execute("INSERT INTO short_likes (short_id, user) VALUES (?, ?)", (short_id, user))
+        cur.execute("UPDATE shorts SET likes = likes + 1 WHERE id=?", (short_id,))
+        conn.commit()
+        flash("Short liked!", "success")
+
+    conn.close()
+    return redirect(url_for("shorts_feed"))
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    # Get uploader of this short
+    cur.execute("SELECT uploader FROM shorts WHERE id=?", (short_id,))
+    row = cur.fetchone()
+    if row and row["uploader"] == user:
+        conn.close()
+        flash("You cannot like your own short.", "danger")
+        return redirect(url_for("shorts_feed"))
+
+    # Check if user already liked this short
+    cur.execute("SELECT 1 FROM short_likes WHERE short_id=? AND user=?", (short_id, user))
+    if cur.fetchone():
+        flash("You've already liked this short.", "info")
+    else:
+        # Record the like
+        cur.execute("INSERT INTO short_likes (short_id, user) VALUES (?, ?)", (short_id, user))
+        cur.execute("UPDATE shorts SET likes = likes + 1 WHERE id=?", (short_id,))
+        conn.commit()
+        flash("Short liked!", "success")
+
+    conn.close()
+    return redirect(url_for("shorts_feed"))
+
+
+
+@app.route("/channels")
+def channels():
+    conn = sqlite3.connect("buzz.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, owner, pic FROM channels")
+    channels = [dict(id=row[0], name=row[1], owner=row[2], pic=row[3]) for row in cursor.fetchall()]
+    conn.close()
+    return render_template("channels.html", channels=channels)
+
+@app.route("/create_channel", methods=["GET", "POST"])
+def create_channel():
+    if request.method == "POST":
+        name = request.form["name"]
+        pic = request.files["pic"]
+
+        filename = name.replace(" ", "_") + ".png"
+        filepath = os.path.join("static/channels", filename)
+        pic.save(filepath)
+
+        owner = session["user"]
+
+        conn = sqlite3.connect("buzz.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO channels (name, owner, pic) VALUES (?, ?, ?)",
+                       (name, owner, filepath))
+        conn.commit()
+        conn.close()
+
+        return redirect(url_for("channels"))
+
+    return render_template("create_channel.html")
+
+@app.route("/channel/<int:channel_id>")
+def channel(channel_id):
+    conn = sqlite3.connect("buzz.db")
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id, name, owner, pic FROM channels WHERE id=?", (channel_id,))
+    row = cursor.fetchone()
+    channel = dict(id=row[0], name=row[1], owner=row[2], pic=row[3])
+
+    cursor.execute("SELECT id, title, filepath FROM videos WHERE channel_id=?", (channel_id,))
+    videos = [dict(id=v[0], title=v[1], filepath=v[2]) for v in cursor.fetchall()]
+
+    conn.close()
+    return render_template("channel.html", channel=channel, videos=videos)
+
+
+
+
+
+@app.route("/shorts/upload", methods=["GET", "POST"])
+def upload_short():
+    if request.method == "POST":
+        file = request.files.get("video")
+        caption = request.form.get("caption", "")
+        title = request.form.get("title", "Untitled")
+        uploader = session.get("user", "guest")
+
+        if file:
+            filename = f"short_{int(time.time())}.mp4"
+            filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            file.save(filepath)
+
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO shorts (title, uploader, filepath, caption) VALUES (?, ?, ?, ?)",
+                (title, uploader, filepath, caption)
+            )
+            conn.commit()
+            conn.close()
+
+            flash("Buzz Short uploaded successfully!", "success")
+            return redirect(url_for("shorts_feed"))
+
+    return render_template("upload_short.html")
+
+
+
+@app.route("/shorts")
+def shorts_feed():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM shorts ORDER BY timestamp DESC")
+    shorts = cur.fetchall()
+    conn.close()
+    return render_template("shorts_feed.html", shorts=shorts)
+
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        email = request.form.get("email")
+        username = request.form.get("username")
+        password = request.form.get("password")
+        ip_address = request.remote_addr  # capture public IP
+
+        if not email or not username or not password:
+            flash("Email, username, and password are required.", "danger")
+            return redirect(url_for("signup"))
+
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "INSERT INTO users (email, username, password, premium, ip_address) VALUES (?, ?, ?, ?, ?)",
+                (email, username, password, 0, ip_address)
+            )
+            conn.commit()
+            flash("Signup successful! Please log in.", "success")
+            return redirect(url_for("login"))
+        except sqlite3.IntegrityError:
+            flash("Email or username already exists.", "danger")
+        finally:
+            conn.close()
+    return render_template("signup.html")
+
+@app.route("/request_premium", methods=["POST"])
+@premium_required
+def request_premium():
+    if "user" not in session:
+        return "Unauthorized", 403
+
+    user = session["user"]
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO premium_requests (username, status) VALUES (?, ?)",
+        (user, "pending")
+    )
+    conn.commit()
+    conn.close()
+
+    flash("Your premium request has been submitted!", "success")
+    return redirect(url_for("home"))
+
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form.get("email")
+        username = request.form.get("username")
+        password = request.form.get("password")
+
+        if not email or not username or not password:
+            flash("Email, username, and password are required.", "danger")
+            return redirect(url_for("login"))
+
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM users WHERE email=? AND username=? AND password=?",
+            (email, username, password)
+        )
+        user = cur.fetchone()
+        conn.close()
+
+        if user:
+            session["user"] = user["username"]
+            session["admin"] = (user["username"] == "admin")
+            session["login_time"] = int(time.time())
+            flash("Login successful!", "success")
+            return redirect(url_for("home"))
+        else:
+            flash("Invalid credentials.", "danger")
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("Logged out successfully.", "info")
+    return redirect(url_for("login"))
+
+
+@app.route("/grant_premium_user/<username>", methods=["POST"])
+def grant_premium_user(username):
+    if not session.get("admin"):
+        abort(403)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET premium=1 WHERE username=?", (username,))
+    conn.commit()
+    conn.close()
+
+    flash(f"Premium granted to {username}!", "success")
+    return redirect(url_for("profile", username=username))
+@app.route("/")
+@premium_required
+def home():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT videos.*, users.premium
+        FROM videos
+        JOIN users ON videos.uploader = users.username
+        ORDER BY videos.id DESC
+    """)
+    videos = cur.fetchall()
+
+    cur.execute("SELECT premium FROM users WHERE username=?", (session["user"],))
+    user = cur.fetchone()
+    premium = user["premium"] if user else 0
+
+    conn.close()
+    return render_template("home.html", videos=videos, premium=premium)
+
+
+@app.route("/video/<int:id>", methods=["GET", "POST"])
+@premium_required
+def video(id):
+    conn = get_db()
+    cur = conn.cursor()
+
+    if request.method == "POST":
+        text = request.form["text"]
+        cur.execute("INSERT INTO comments (video_id, user, text) VALUES (?, ?, ?)",
+                    (id, session["user"], text))
+        conn.commit()
+
+    cur.execute("SELECT * FROM videos WHERE id=?", (id,))
+    v = cur.fetchone()
+    cur.execute("SELECT * FROM comments WHERE video_id=?", (id,))
+    comments = cur.fetchall()
+
+    cur.execute("SELECT premium FROM users WHERE username=?", (session["user"],))
+    user = cur.fetchone()
+    conn.close()
+
+    premium = user["premium"] if user else 0
+    return render_template("video.html", v=v, comments=comments, premium=premium)
+
+
+@app.route("/upload", methods=["GET", "POST"])
+@premium_required
+def upload():
+    if request.method == "POST":
+        title = request.form.get("title")
+        if not title:
+            flash("Title is required.", "danger")
+            return redirect(url_for("upload"))
+
+        file = request.files.get("file")
+        if not file or file.filename.strip() == "":
+            flash("No file selected.", "danger")
+            return redirect(url_for("upload"))
+
+        try:
+            filename = werkzeug.utils.secure_filename(file.filename)
+            os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+            save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            file.save(save_path)
+
+            web_path = url_for("static", filename=f"uploads/{filename}")
+
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO videos (title, uploader, filepath) VALUES (?, ?, ?)",
+                (title, session["user"], web_path)
+            )
+            conn.commit()
+            conn.close()
+
+            flash("Video uploaded successfully!", "success")
+            return redirect(url_for("home"))
+
+        except Exception as e:
+            flash(f"Upload failed: {e}", "danger")
+            return redirect(url_for("upload"))
+
+    return render_template("upload.html")
+
+
+@app.route("/leaderboard")
+@premium_required
+def leaderboard():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT title, likes FROM videos ORDER BY likes DESC LIMIT 5")
+    videos = cur.fetchall()
+    conn.close()
+
+    titles = [v["title"] for v in videos]
+    likes = [v["likes"] for v in videos]
+
+    return render_template("leaderboard.html", titles=titles, likes=likes, videos=videos)
+
+
+@app.route("/publichat", methods=["GET", "POST"])
+@premium_required
+def publichat():
+    conn = get_db()
+    cur = conn.cursor()
+
+    if request.method == "POST":
+        msg = request.form["message"]
+        cur.execute("INSERT INTO messages (user, message) VALUES (?, ?)",
+                    (session["user"], msg))
+        conn.commit()
+
+    cur.execute("SELECT * FROM messages ORDER BY id DESC LIMIT 20")
+    messages = cur.fetchall()
+    conn.close()
+
+    return render_template("publichat.html", messages=messages)
+
+
+@app.route("/profile")
+@premium_required
+def profile():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM videos WHERE uploader=?", (session["user"],))
+    videos = cur.fetchall()
+    cur.execute("SELECT * FROM users WHERE username=?", (session["user"],))
+    user = cur.fetchone()
+    cur.execute("SELECT following FROM follows WHERE follower=?", (session["user"],))
+    subs = cur.fetchall()
+    conn.close()
+
+    return render_template("profile.html", user=user, videos=videos, subs=subs)
+
+
+
+@app.route("/settings", methods=["GET", "POST"])
+@premium_required
+def settings():
+    conn = get_db()
+    cur = conn.cursor()
+
+    if request.method == "POST":
+        new_username = request.form.get("username")
+        new_password = request.form.get("password")
+
+        if new_username:
+            cur.execute("UPDATE users SET username=? WHERE username=?", 
+                        (new_username, session["user"]))
+            session["user"] = new_username
+
+        if new_password:
+            cur.execute("UPDATE users SET password=? WHERE username=?", 
+                        (new_password, session["user"]))
+
+        conn.commit()
+        flash("Settings updated!", "success")
+
+    cur.execute("SELECT * FROM users WHERE username=?", (session["user"],))
+    user = cur.fetchone()
+    conn.close()
+
+    return render_template("settings.html", user=user)
+
+
+@app.route("/like/<int:id>", methods=["POST"])
+@premium_required
+def like_video(id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM videos WHERE id=?", (id,))
+    video = cur.fetchone()
+    if not video:
+        conn.close()
+        flash("Video not found.", "danger")
+        return redirect(url_for("home"))
+
+    if video["uploader"] == session["user"]:
+        conn.close()
+        flash("You cannot like your own video.", "warning")
+        return redirect(url_for("video", id=id))
+
+    cur.execute("SELECT * FROM likes WHERE video_id=? AND user=?", (id, session["user"]))
+    existing = cur.fetchone()
+
+    if existing:
+        cur.execute("DELETE FROM likes WHERE video_id=? AND user=?", (id, session["user"]))
+        cur.execute("UPDATE videos SET likes = likes - 1 WHERE id=?", (id,))
+        flash("You unliked the video.", "info")
+    else:
+        cur.execute("INSERT INTO likes (video_id, user) VALUES (?, ?)", (id, session["user"]))
+        cur.execute("UPDATE videos SET likes = likes + 1 WHERE id=?", (id,))
+        flash("You liked the video!", "success")
+
+    conn.commit()
+    conn.close()
+    return redirect(url_for("video", id=id))
+
+
+@app.route("/follow/<string:username>", methods=["POST"])
+@premium_required
+def follow_user(username):
+    conn = get_db()
+    cur = conn.cursor()
+
+    if username == session["user"]:
+        conn.close()
+        flash("You cannot follow yourself.", "warning")
+        return redirect(url_for("profile"))
+
+    cur.execute("SELECT * FROM follows WHERE follower=? AND following=?", (session["user"], username))
+    existing = cur.fetchone()
+
+    if existing:
+        flash(f"You already follow {username}.", "info")
+    else:
+        cur.execute("INSERT INTO follows (follower, following) VALUES (?, ?)", (session["user"], username))
+        conn.commit()
+        flash(f"You are now following {username}!", "success")
+
+    conn.close()
+    return redirect(url_for("profile"))
+@app.route("/admin")
+def admin_dashboard():
+    if not session.get("admin"):
+        flash("Admin access required.", "danger")
+        return redirect(url_for("home"))
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM videos")
+    videos = cur.fetchall()
+    cur.execute("SELECT * FROM comments")
+    comments = cur.fetchall()
+    cur.execute("SELECT * FROM users")
+    users = cur.fetchall()
+    cur.execute("SELECT * FROM reports")
+    reports = cur.fetchall()
+    cur.execute("SELECT * FROM messages")
+    messages = cur.fetchall()
+    cur.execute("SELECT * FROM blocked_ips")
+    blocked_ips = cur.fetchall()
+    cur.execute("SELECT * FROM premium_requests ORDER BY id DESC")
+    premium_requests = cur.fetchall()
+    conn.close()
+
+    return render_template("admin.html",
+                           videos=videos,
+                           comments=comments,
+                           users=users,
+                           reports=reports,
+                           messages=messages,
+                           blocked_ips=blocked_ips,
+                           premium_requests=premium_requests)
+
+
+@app.route("/admin/delete_video/<int:id>", methods=["POST"])
+def admin_delete_video(id):
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM videos WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    flash("Video deleted.", "info")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/delete_comment/<int:id>", methods=["POST"])
+def admin_delete_comment(id):
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM comments WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    flash("Comment deleted.", "info")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/delete_message/<int:id>", methods=["POST"])
+def admin_delete_message(id):
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM messages WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    flash("Message deleted.", "info")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/grant_premium/<int:id>", methods=["POST"])
+def admin_grant_premium(id):
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET premium=1 WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    flash("Premium granted.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/kick_user/<int:id>", methods=["POST"])
+def admin_kick_user(id):
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM users WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    flash("User kicked.", "info")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/mark_report_reviewed/<int:id>", methods=["POST"])
+def admin_mark_report_reviewed(id):
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE reports SET status='reviewed' WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    flash("Report marked as reviewed.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
+# ✅ Block/Unblock IP routes
+@app.route("/admin/block_ip", methods=["POST"])
+def admin_block_ip():
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    ip = request.form.get("ip")
+    if ip:
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            cur.execute("INSERT INTO blocked_ips (ip_address) VALUES (?)", (ip,))
+            conn.commit()
+            flash(f"Blocked {ip}", "success")
+        except sqlite3.IntegrityError:
+            flash(f"{ip} is already blocked.", "warning")
+        conn.close()
+    return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/unblock_ip", methods=["POST"])
+def admin_unblock_ip():
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    ip = request.form.get("ip")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM blocked_ips WHERE ip_address=?", (ip,))
+    conn.commit()
+    conn.close()
+    flash(f"Unblocked {ip}", "info")
+    return redirect(url_for("admin_dashboard"))
+
+
+# ✅ Premium request management
+@app.route("/admin/grant_premium_request/<int:request_id>", methods=["POST"])
+def admin_grant_premium_request(request_id):
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE premium_requests SET status='granted' WHERE id=?", (request_id,))
+    cur.execute("""
+        UPDATE users SET premium=1 
+        WHERE username=(SELECT username FROM premium_requests WHERE id=?)
+    """, (request_id,))
+    conn.commit()
+    conn.close()
+    flash("Premium request granted.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/reject_premium_request/<int:request_id>", methods=["POST"])
+def admin_reject_premium_request(request_id):
+    if not session.get("admin"):
+        return redirect(url_for("home"))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE premium_requests SET status='rejected' WHERE id=?", (request_id,))
+    conn.commit()
+    conn.close()
+    flash("Premium request rejected.", "info")
+    return redirect(url_for("admin_dashboard"))
+if __name__ == "__main__":
+    init_db()
+    app.run(host="0.0.0.0", port=5000, debug=True)

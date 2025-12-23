@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1 class="big-title neon-text">Upload a Buzz Short</h1>
+
+  <form action="{{ url_for('upload_short') }}" method="post" enctype="multipart/form-data" class="card">
+    <!-- Title -->
+    <label class="neon-label" for="title">Title</label>
+    <input type="text" id="title" name="title" class="neon-input" placeholder="Enter short title" required>
+
+    <!-- Caption -->
+    <label class="neon-label" for="caption">Caption</label>
+    <textarea id="caption" name="caption" class="neon-input" placeholder="Write a caption..."></textarea>
+
+    <!-- Video File -->
+    <label class="neon-label" for="video">Video File</label>
+    <input type="file" id="video" name="video" accept="video/mp4" required>
+
+    <!-- Submit -->
+    <button type="submit" class="btn">Upload Short</button>
+  </form>
+{% endblock %}

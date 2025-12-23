@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="neon-text big-title">{{ channel.name }}</h1>
+
+<div style="text-align:center;">
+  <img src="{{ channel.pic }}" style="max-width:300px; border-radius:12px; box-shadow:0 0 25px #ff33aa;">
+  <p style="margin-top:10px;">Owner: {{ channel.owner }}</p>
+</div>
+
+<h2 class="neon-text" style="margin-top:30px;">Videos</h2>
+
+<ul class="video-list">
+  {% for v in videos %}
+  <li class="card">
+    <h2 class="neon-text">{{ v.title }}</h2>
+    <video controls width="100%">
+      <source src="{{ v.filepath }}" type="video/mp4">
+    </video>
+  </li>
+  {% else %}
+  <p class="neon-text">No videos in this channel yet.</p>
+  {% endfor %}
+</ul>
+
+{% endblock %}
