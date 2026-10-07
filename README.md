@@ -1,3 +1,10 @@
+> ## 👋 Start Here
+> A continued BuzzTube development project. **For users:** compare this version with earlier iterations and see how the platform evolved.
+>
+> **Safety:** Use security, camera, scanning, and network features only on systems and networks you own or are explicitly authorized to test.
+
+---
+
 # 📺 BuzzTube3  
 A LAN‑only social hub built with **Flask + SQLite + Bootstrap**, designed as a lightweight YouTube/TikTok‑style platform for local networks. Users can upload videos, post Buzz Shorts, chat, and interact — all running privately on your own device or Raspberry Pi.
 
